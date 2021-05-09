@@ -1,23 +1,19 @@
-import logo from './logo.svg';
+
 import './App.css';
+import Navbar from './WebCode/Navbar';
+import LeaderBoard from './WebCode/LeaderBoard';
+import BabylonScene from './GameCode/BabylonScene';
 
 function App() {
   return (
     <div className="App">
-      <header className="App-header">
-        <img src={logo} className="App-logo" alt="logo" />
-        <p>
-          Edit <code>src/App.js</code> and save to reload.
-        </p>
-        <a
-          className="App-link"
-          href="https://reactjs.org"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          Learn React
-        </a>
-      </header>
+      <Navbar></Navbar>
+      <div className="content"></div>
+        <h1>App Component</h1>
+        <div>
+          <BabylonScene/>
+        </div>
+        
     </div>
   );
 }

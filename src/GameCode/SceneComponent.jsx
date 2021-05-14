@@ -3,24 +3,15 @@ import React, { useEffect, useRef } from "react";
 
 export default (props) => {
   const reactCanvas = useRef(null);
-  const { antialias, engineOptions, adaptToDeviceRatio, sceneOptions, onRender, onSceneReady, ...rest } = props;
+  const { antialias, engineOptions, adaptToDeviceRatio, sceneOptions, myScene, ...rest } = props;
 
   useEffect(() => {
     if (reactCanvas.current) {
       const engine = new Engine(reactCanvas.current, antialias, engineOptions, adaptToDeviceRatio);
       const scene = new Scene(engine, sceneOptions);
-      if (scene.isReady()) {
-        props.onSceneReady(scene);
-      } else {
-        scene.onReadyObservable.addOnce((scene) => props.onSceneReady(scene));
-      }
+      const myScene = new props.myScene(engine, scene);
 
-      engine.runRenderLoop(() => {
-        if (typeof onRender === "function") {
-          onRender(scene);
-        }
-        scene.render();
-      });
+      myScene.main();
 
       const resize = () => {
         scene.getEngine().resize();

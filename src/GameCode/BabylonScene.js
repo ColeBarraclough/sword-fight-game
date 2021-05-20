@@ -1,11 +1,10 @@
 import React from "react";
-import {GamepadManager, Xbox360Pad, StandardMaterial, HemisphericLight, Engine, Scene, Vector3, Mesh, Color3, Color4, ShadowGenerator, GlowLayer, PointLight, FreeCamera, CubeTexture, Sound, PostProcess, Effect, SceneLoader, Matrix, MeshBuilder, Quaternion, AssetsManager } from "@babylonjs/core";import { AdvancedDynamicTexture, Button, Control } from "@babylonjs/gui";
+import {StandardMaterial, HemisphericLight, Scene, Vector3, Mesh, Color3, Color4, ShadowGenerator, PointLight, FreeCamera, Matrix, MeshBuilder, Quaternion, GamepadManager} from "@babylonjs/core";import { AdvancedDynamicTexture, Button, Control } from "@babylonjs/gui";
 import SceneComponent from "./SceneComponent"; // uses above component in same directory
 import {Environment} from "./Enviorment";
 import {Player} from "./Player"
+import {PlayerInput} from "./PlayerInput"
 
-let box;
-let box2;
 
 const states = {
   MAIN_MENU: 0,
@@ -18,6 +17,7 @@ class BabylonScene {
     this._scene = scene;
     this._engine = engine;
     this._canvas = scene.getEngine().getRenderingCanvas();
+    this._gamepadManager = new GamepadManager();
     this._state = 0;
   }
 
@@ -137,12 +137,15 @@ class BabylonScene {
     this._scene.detachControl();
     let scene = this._gamescene;
 
+    this._input = new PlayerInput(scene, this._gamepadManager);
+
     //primitive character and setting
     await this._initializeGameAsync(scene);
 
     //--WHEN SCENE FINISHED LOADING--
     await scene.whenReadyAsync();
-    scene.getMeshByName("outer").position = new Vector3(0, 3, 0);
+    scene.getMeshByName("outer").position = new Vector3(0, 0, 0);
+    scene.getMeshByName("outer2").position = new Vector3(5, 0, 5);
 
     //get rid of start scene, switch to gamescene and change states
     this._scene.dispose();
@@ -154,7 +157,7 @@ class BabylonScene {
   }
 
   async _loadCharacterAssets(scene) {
-    async function loadCharacter() {
+    async function loadCharacterOne() {
       //collision mesh
       const outer = MeshBuilder.CreateBox("outer", { width: 2, depth: 1, height: 3 }, scene);
       outer.isVisible = false;
@@ -189,8 +192,53 @@ class BabylonScene {
       }
     }
 
-    return loadCharacter().then(assets => {
-      this.assets = assets;
+    async function loadCharacterTwo() {
+            //collision mesh
+            const outer = MeshBuilder.CreateBox("outer2", { width: 2, depth: 1, height: 3 }, scene);
+            outer.isVisible = false;
+            outer.isPickable = false;
+            outer.checkCollisions = true;
+      
+            //move origin of box collider to the bottom of the mesh (to match imported player mesh)
+            outer.bakeTransformIntoVertices(Matrix.Translation(0, 1.5, 0));
+            //for collisions
+            outer.ellipsoid = new Vector3(1, 1.5, 1);
+            outer.ellipsoidOffset = new Vector3(0, 1.5, 0);
+      
+            outer.rotationQuaternion = new Quaternion(0, 1, 0, 0); // rotate the player mesh 180 since we want to see the back of the player
+      
+            var box = MeshBuilder.CreateBox("Small2", { width: 0.5, depth: 0.5, height: 0.25, faceColors: [new Color4(0, 0, 0, 1), new Color4(0, 0, 0, 1), new Color4(0, 0, 0, 1), new Color4(0, 0, 0, 1), new Color4(0, 0, 0, 1), new Color4(0, 0, 0, 1)] }, scene);
+            box.position.y = 1.5;
+            box.position.z = 1;
+      
+            var body = Mesh.CreateCylinder("body2", 3, 2, 2, 0, 0, scene);
+            var bodymtl = new StandardMaterial("red", scene);
+            bodymtl.diffuseColor = new Color3(0.0, 0.0, 0.5);
+            body.material = bodymtl;
+            body.isPickable = false;
+            body.bakeTransformIntoVertices(Matrix.Translation(0, 1.5, 0)); // simulates the imported mesh's origin
+      
+            //parent the meshes
+            box.parent = body;
+            body.parent = outer;
+      
+            return {
+              mesh: outer
+            }
+    }
+
+    async function loadCharacters() {
+        const characterOneAssets = await loadCharacterOne();
+        const characterTwoAssets = await loadCharacterTwo();
+        return {
+          characterOne: characterOneAssets,
+          characterTwo: characterTwoAssets
+        }
+    }
+
+    return loadCharacters().then(assets => {
+      this.playerOneAssets = assets.characterOne;
+      this.playerTwoAssets = assets.characterTwo;
     });
 
   }
@@ -208,8 +256,10 @@ class BabylonScene {
     shadowGenerator.darkness = 0.4;
 
     //Create the player
-    this._player = new Player(this.assets, scene, shadowGenerator, null); //dont have inputs yet so we dont need to pass it in
-}
+    this._playerTwo = new Player(this.playerTwoAssets, scene, shadowGenerator);
+    this._playerOne = new Player(this.playerOneAssets, scene, shadowGenerator, this._input); //dont have inputs yet so we dont need to pass it in
+    const camera = this._playerOne.activatePlayerCamera();
+  }
 }
 
 

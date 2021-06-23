@@ -1,9 +1,14 @@
+import "@babylonjs/loaders/glTF";
+
 import React from "react";
-import {StandardMaterial, HemisphericLight, Scene, Vector3, Mesh, Color3, Color4, ShadowGenerator, PointLight, FreeCamera, Matrix, MeshBuilder, Quaternion, GamepadManager} from "@babylonjs/core";import { AdvancedDynamicTexture, Button, Control } from "@babylonjs/gui";
+import {SceneLoader, StandardMaterial, HemisphericLight, Scene, Vector3, Mesh, Color3, Color4, ShadowGenerator, PointLight, FreeCamera, Matrix, MeshBuilder, Quaternion, GamepadManager} from "@babylonjs/core";
+import { AdvancedDynamicTexture, Button, Control} from "@babylonjs/gui";
+import {Hud} from "./ui.js"
 import SceneComponent from "./SceneComponent"; // uses above component in same directory
 import {Environment} from "./Enviorment";
-import {Player} from "./Player"
+import {LightPlayer, HeavyPlayer} from "./Player"
 import {PlayerInput} from "./PlayerInput"
+
 
 
 const states = {
@@ -136,7 +141,9 @@ class BabylonScene {
     //--SETUP SCENE--
     this._scene.detachControl();
     let scene = this._gamescene;
-
+    
+    const ui = new Hud(scene);
+    this._ui = ui;
     this._input = new PlayerInput(scene, this._gamepadManager);
 
     //primitive character and setting
@@ -144,8 +151,10 @@ class BabylonScene {
 
     //--WHEN SCENE FINISHED LOADING--
     await scene.whenReadyAsync();
-    scene.getMeshByName("outer").position = new Vector3(0, 0, 0);
+    // scene.getMeshByName("outer").position = scene.getTransformNodeByName("startPosition").getAbsolutePosition();
     scene.getMeshByName("outer2").position = new Vector3(5, 0, 5);
+
+    this._ui.startTimer();
 
     //get rid of start scene, switch to gamescene and change states
     this._scene.dispose();
@@ -172,59 +181,61 @@ class BabylonScene {
 
       outer.rotationQuaternion = new Quaternion(0, 1, 0, 0); // rotate the player mesh 180 since we want to see the back of the player
 
-      var box = MeshBuilder.CreateBox("Small1", { width: 0.5, depth: 0.5, height: 0.25, faceColors: [new Color4(0, 0, 0, 1), new Color4(0, 0, 0, 1), new Color4(0, 0, 0, 1), new Color4(0, 0, 0, 1), new Color4(0, 0, 0, 1), new Color4(0, 0, 0, 1)] }, scene);
-      box.position.y = 1.5;
-      box.position.z = 1;
-
-      var body = Mesh.CreateCylinder("body", 3, 2, 2, 0, 0, scene);
-      var bodymtl = new StandardMaterial("red", scene);
-      bodymtl.diffuseColor = new Color3(0.8, 0.5, 0.5);
-      body.material = bodymtl;
-      body.isPickable = false;
-      body.bakeTransformIntoVertices(Matrix.Translation(0, 1.5, 0)); // simulates the imported mesh's origin
-
-      //parent the meshes
-      box.parent = body;
-      body.parent = outer;
-
-      return {
-        mesh: outer
-      }
+      //--IMPORTING MESH--
+      return SceneLoader.ImportMeshAsync(null, "./models/", "lightPlayerTest.gltf", scene).then((result) =>{
+        const root = result.meshes[0];
+        const skeleton = result.skeletons[0];
+        //body is our actual player mesh
+        const body = root;
+        body.parent = outer;
+        body.isPickable = true;
+        body.getChildMeshes().forEach(m => {
+            m.isPickable = true;
+        })
+              
+        //return the mesh and animations
+        return {
+            mesh: outer,
+            skeleton: skeleton,
+            animationGroups: result.animationGroups
+        }
+      });
     }
 
     async function loadCharacterTwo() {
-            //collision mesh
-            const outer = MeshBuilder.CreateBox("outer2", { width: 2, depth: 1, height: 3 }, scene);
-            outer.isVisible = false;
-            outer.isPickable = false;
-            outer.checkCollisions = true;
-      
-            //move origin of box collider to the bottom of the mesh (to match imported player mesh)
-            outer.bakeTransformIntoVertices(Matrix.Translation(0, 1.5, 0));
-            //for collisions
-            outer.ellipsoid = new Vector3(1, 1.5, 1);
-            outer.ellipsoidOffset = new Vector3(0, 1.5, 0);
-      
-            outer.rotationQuaternion = new Quaternion(0, 1, 0, 0); // rotate the player mesh 180 since we want to see the back of the player
-      
-            var box = MeshBuilder.CreateBox("Small2", { width: 0.5, depth: 0.5, height: 0.25, faceColors: [new Color4(0, 0, 0, 1), new Color4(0, 0, 0, 1), new Color4(0, 0, 0, 1), new Color4(0, 0, 0, 1), new Color4(0, 0, 0, 1), new Color4(0, 0, 0, 1)] }, scene);
-            box.position.y = 1.5;
-            box.position.z = 1;
-      
-            var body = Mesh.CreateCylinder("body2", 3, 2, 2, 0, 0, scene);
-            var bodymtl = new StandardMaterial("red", scene);
-            bodymtl.diffuseColor = new Color3(0.0, 0.0, 0.5);
-            body.material = bodymtl;
-            body.isPickable = false;
-            body.bakeTransformIntoVertices(Matrix.Translation(0, 1.5, 0)); // simulates the imported mesh's origin
-      
-            //parent the meshes
-            box.parent = body;
-            body.parent = outer;
-      
-            return {
-              mesh: outer
-            }
+      //collision mesh
+      const outer = MeshBuilder.CreateBox("outer2", { width: 2, depth: 1, height: 3 }, scene);
+      outer.isVisible = false;
+      outer.isPickable = false;
+      outer.checkCollisions = true;
+
+      //move origin of box collider to the bottom of the mesh (to match imported player mesh)
+      outer.bakeTransformIntoVertices(Matrix.Translation(0, 1.5, 0));
+      //for collisions
+      outer.ellipsoid = new Vector3(1, 1.5, 1);
+      outer.ellipsoidOffset = new Vector3(0, 1.5, 0);
+
+      outer.rotationQuaternion = new Quaternion(0, 1, 0, 0); // rotate the player mesh 180 since we want to see the back of the player
+
+      //--IMPORTING MESH--
+      return SceneLoader.ImportMeshAsync(null, "./models/", "lightPlayerTest.glb", scene).then((result) =>{
+        const root = result.meshes[0];
+        const skeleton = result.skeletons[0];
+        //body is our actual player mesh
+        const body = root;
+        body.parent = outer;
+        body.isPickable = true;
+        body.getChildMeshes().forEach(m => {
+            m.isPickable = true;
+        })
+              
+        //return the mesh and animations
+        return {
+          mesh: outer,
+          skeleton: skeleton,
+          animationGroups: result.animationGroups
+        }
+      });
     }
 
     async function loadCharacters() {
@@ -254,11 +265,21 @@ class BabylonScene {
 
     const shadowGenerator = new ShadowGenerator(1024, light);
     shadowGenerator.darkness = 0.4;
+    scene.onBeforeRenderObservable.add(() => {
+      // when the game isn't paused, update the timer
+      if (!this._ui.gamePaused) {
+          this._ui.updateHud();
+      }
+    });
 
     //Create the player
-    this._playerTwo = new Player(this.playerTwoAssets, scene, shadowGenerator);
-    this._playerOne = new Player(this.playerOneAssets, scene, shadowGenerator, this._input); //dont have inputs yet so we dont need to pass it in
+    this._playerTwo = new LightPlayer(this.playerTwoAssets, scene, shadowGenerator, null, this._ui);
+    this._playerOne = new HeavyPlayer(this.playerOneAssets, scene, shadowGenerator, this._input, this._ui); //dont have inputs yet so we dont need to pass it in
     const camera = this._playerOne.activatePlayerCamera();
+    this._ui.initializeHealthBar('1', this._playerOne.getPlayerHealth());
+    this._ui.initializeHealthBar('2', this._playerTwo.getPlayerHealth());
+    this._playerOne.setOpponent(this._playerTwo);
+    this._playerTwo.setOpponent(this._playerOne);
   }
 }
 

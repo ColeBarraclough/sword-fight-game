@@ -38,12 +38,30 @@ export class PlayerInput {
                     if (Xbox360Button[button] == "A") {
                         this.specialOne = true;
                     }
+                    if (Xbox360Button[button] == "X") {
+                        this.unblockable = true;
+                    }
+                    if (Xbox360Button[button] == "B") {
+                        this.cancel = true;
+                    }
+                    if (Xbox360Button[button] == "Y") {
+                        this.takeHit = true;
+                    }
                 });
                 gamepad.onButtonUpObservable.add((button, state) => {
                     if (Xbox360Button[button] == "A") {
                         this.specialOne = false;
                     }
-                })
+                    if (Xbox360Button[button] == "X") {
+                        this.unblockable = false;
+                    }
+                    if (Xbox360Button[button] == "B") {
+                        this.cancel = false;
+                    }
+                    if (Xbox360Button[button] == "Y") {
+                        this.takeHit = false;
+                    }
+                });
 
             }
         });

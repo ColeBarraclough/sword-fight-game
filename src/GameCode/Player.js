@@ -1,5 +1,4 @@
 import {TransformNode, Vector3, UniversalCamera, Ray} from "@babylonjs/core" 
-import { TimerState, _ThinInstanceDataStorage } from "babylonjs";
 // import compose from "lodash/fp/compose"
 /**
  * This is where all of the playable characters will be handled
@@ -47,9 +46,22 @@ const LIGHT_PLAYER_COMBO_EXTENDER_END_LAG = 0.2;
 const LIGHT_PLAYER_COMBO_EXTENDER_RANGE = 3;
 const LIGHT_PLAYER_COMBO_EXTENDER_HITSTUN = 0.5;
 
+
+const LIGHT_PLAYER_UNBLOCKABLE_START_LAG = 0.1;
+const LIGHT_PLAYER_UNBLOCKABLE_END_LAG = 0.3;
+const LIGHT_PLAYER_UNBLOCKABLE_DURATION = 0.1;
+const LIGHT_PLAYER_UNBLOCKABLE_RANGE = 2;
+const LIGHT_PLAYER_UNBLOCKABLE_HITSTUN = 1;
+const LIGHT_PLAYER_UNBLOCKABLE_DAMAGE = 7;
+
+
+const BLOCK_TIME = 0.1;
+const BLOCKED_HITSTUN = 0.5;
+
 class Player extends TransformNode {
-    constructor(assets, scene, shadowGenerator, input, ui) {
+    constructor(id, assets, scene, shadowGenerator, input, ui) {
         super("player", scene);
+        this.id = id;
         this._hitStun = 0;
         this._lastGroundPos = Vector3.Zero();
         this.attackStarted = false;
@@ -127,6 +139,10 @@ class Player extends TransformNode {
 
     _beforeRenderUpdate() {
         
+        if (this._input.takeHit) {
+            this._takeHit(5, 5, 2);
+        }
+
         this._deltaTime = this.scene.getEngine().getDeltaTime() / 1000.0;
         // this._animatePlayer();
         if (this._hitStun > 0) {
@@ -134,8 +150,15 @@ class Player extends TransformNode {
             this._updateLag();
             return;
         }
+        if (!this._specialOneStarted) {
+            this._updateRotation();
+        }
         if (!this._specialOneStarted && !this._attackStarted) {
             this._updateFromControls();
+        }
+
+        if (this._unblockableStarted || this._input.unblockable) {
+            this._preformUnblockable();
         }
         
         if (this._lag > 0) {
@@ -165,6 +188,11 @@ class Player extends TransformNode {
         
     }
 
+    _updateRotation() {
+        let playerTwoPos = this._opponent.getPosition();
+        this.mesh.rotation = new Vector3(0,-Math.atan2(this.mesh.position.z - playerTwoPos.z, this.mesh.position.x - playerTwoPos.x) - Math.PI / 2,0);
+    }
+
     _updateLag() {
         this._lag -= this._deltaTime;
     }
@@ -173,15 +201,24 @@ class Player extends TransformNode {
         this._hitStun -= this._deltaTime;
     }
 
-    takeHit(hitStun, damage, swordPosTheta) {
+    takeDamage(hitStun, damage) {
         // if (this._input.rightStickTheta == )
         this._playerHealth -= damage;
         this.applyHitStun(hitStun);
-        this._ui.changeHealth(this._playerHealth);
+        this._ui.changeHealth(this.id, this._playerHealth);
         console.log(this.mesh.name + " got hit for " + damage + " damage");
     }
 
     applyHitStun(hitStun) {
+        this._attackStarted = false;
+        this._attackTime = 0;
+        
+        this._specialOneStarted = false;
+        this._specialOneTime = 0;
+
+        this._unblockableStarted = false;
+        this._unblockableTime = 0;
+
         this._hitStun = hitStun;
     }
 
@@ -203,6 +240,42 @@ class Player extends TransformNode {
 
     checkInRange(range, target) {
         return this.mesh.position.subtract(target).length() < range;
+    }
+
+    _isSwordRight(swordPos) {
+        if (this._input.rightStickPos == null) {
+            return;
+        }
+        let blocked = false;
+        switch (this._input.rightStickPos) {
+            case 0:
+                blocked = swordPos == 4;
+                break;
+            case 1:
+                blocked = swordPos == 3;
+                break;
+            case 2:
+                blocked = swordPos == 2;
+                break;
+            case 3:
+                blocked = swordPos == 1;
+                break;
+            case 4:
+                blocked = swordPos == 0;
+                break;
+            case 5:
+                blocked = swordPos == 7;
+                break;
+            case 6:
+                blocked = swordPos == 6;
+                break;
+            case 7:
+                blocked = swordPos == 5;
+                break;
+            default:
+                break;
+        }
+        return blocked;
     }
 
 
@@ -255,9 +328,7 @@ class Player extends TransformNode {
 
 const movementMixin = {
     _updateFromControls() {
-        var playerTwoPos = this.scene.getMeshByID("outer2").position;
         this._moveDirection = Vector3.Zero(); // vector that holds movement information
-        this.mesh.rotation = new Vector3(0,-Math.atan2(this.mesh.position.z - playerTwoPos.z, this.mesh.position.x - playerTwoPos.x) - Math.PI / 2,0);
         this._h = this._input.horizontal + this._input.conHorizontal; //x-axis
         this._v = this._input.vertical + this._input.conVertical; //z-axis
 
@@ -314,7 +385,7 @@ const attackMixin = {
             console.log(this.mesh.position.subtract(this._opponent.getPosition()).length());
             if (this.checkInRange(this._attackRange, this._opponent.getPosition())) {
                 this._endAttack();
-                this._opponent.takeHit(this._attackStun, this._initAttackDamage, 0);
+                this._opponent._takeHit(this._attackStun, this._initAttackDamage, this._input.rightStickPos);
             }
             
         }
@@ -329,8 +400,8 @@ const attackMixin = {
 
 
 class LightPlayer extends Player {
-    constructor(assets, scene, shadowGenerator, input, ui) {
-        super(assets, scene, shadowGenerator, input, ui);
+    constructor(id, assets, scene, shadowGenerator, input, ui) {
+        super(id, assets, scene, shadowGenerator, input, ui);
         this._playerSpeed = LIGHT_PLAYER_SPEED;
         this._playerHealth = LIGHT_PLAYER_HEALTH;
 
@@ -349,6 +420,29 @@ class LightPlayer extends Player {
         this._comboExtenderEndLag = LIGHT_PLAYER_COMBO_EXTENDER_END_LAG;
         this._comboExtenderRange = LIGHT_PLAYER_COMBO_EXTENDER_RANGE;
         this._comboExtenderHitStun = LIGHT_PLAYER_COMBO_EXTENDER_HITSTUN;
+
+
+        this._unblockableStartLag = LIGHT_PLAYER_UNBLOCKABLE_START_LAG;
+        this._unblockableEndLag = LIGHT_PLAYER_UNBLOCKABLE_END_LAG;
+        this._unblockableRange = LIGHT_PLAYER_UNBLOCKABLE_RANGE;
+        this._unblockableHitStun = LIGHT_PLAYER_UNBLOCKABLE_HITSTUN;
+        this._unblockableDamage = LIGHT_PLAYER_UNBLOCKABLE_DAMAGE;
+
+        this._blockTime = BLOCK_TIME;
+        this._blockedHitstun = BLOCKED_HITSTUN;
+    }
+
+    _takeHit(hitStun, damage, swordPos) {
+        let blocked = false;
+        if (this._attackTime < this._blockTime) {
+            blocked = this._isSwordRight(swordPos);
+        }
+
+        if (blocked) {
+            this._opponent.applyHitStun(this._blockedHitstun);
+        } else {
+            this.takeDamage(hitStun, damage);
+        }
     }
 }
 
@@ -403,16 +497,41 @@ const kickMixin = {
     }
 }
 
+const stabMixin = {
+    _preformUnblockable() {
+        if (!this._unblockableStarted) {
+            this._unblockableStarted = true;
+            this._unblockableTime = 0;
+        }
+        this._unblockableTime += this._deltaTime;
+        if (this._unblockableTime >= this._unblockableStartLag) {
+            if (this.checkInRange(this._unblockableRange, this._opponent.getPosition())) {
+                this._unblockableStarted = false;
+                this._unblockableTime = 0;
+                this._lag = this._unblockableEndLag;
+                this._opponent._takeHit(this._unblockableStun, this._unblockableDamage, 0);
+                return;
+            }
+            if (this._input.cancel) {
+                this._unblockableStarted = false;
+                this._unblockableTime = 0;
+                this._lag = this._unblockableEndLag / 2;
+            }
+            this.mesh.moveWithCollisions(this.mesh.forward);
+        }
+    }
+}
 
 
-Object.assign(LightPlayer.prototype, movementMixin, cameraMixin, attackMixin, dashMixin, kickMixin);
+
+Object.assign(LightPlayer.prototype, movementMixin, cameraMixin, attackMixin, dashMixin, kickMixin, stabMixin);
 
 
 
 
 class HeavyPlayer extends Player {
-    constructor(assets, scene, shadowGenerator, input, ui) {
-        super(assets, scene, shadowGenerator, input, ui);
+    constructor(id, assets, scene, shadowGenerator, input, ui) {
+        super(id, assets, scene, shadowGenerator, input, ui);
         this._playerSpeed = HEAVY_PLAYER_SPEED;
         this._playerHealth = HEAVY_PLAYER_HEALTH;
 
@@ -422,9 +541,24 @@ class HeavyPlayer extends Player {
         this._attackEndLag = HEAVY_PLAYER_ATTACK_END_LAG;
         this._attackStun = HEAVY_PLAYER_ATTACK_HIT_STUN;
         this._initAttackDamage = HEAVY_PLAYER_INIT_ATTACK_DAMAGE;
+    }
 
+    _takeHit(hitStun, damage, swordPos) {
+        let blocked = false;
+        blocked = this._isSwordRight(swordPos);
+
+        if (blocked) {
+            this._opponent.applyHitStun(this._blockedHitstun);
+        } else {
+            this.takeDamage(hitStun, damage);
+        }
     }
 }
+
+
+
+
+
 
 
 

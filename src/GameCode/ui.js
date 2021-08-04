@@ -125,8 +125,9 @@ export class Hud {
         this._healthUI[player].startingHealth = startHealth;
         this._healthUI[player].healthText.text = startHealth + '';
     }
-    changeHealth(newHealth) {
-        this._healthUI['2'].healthBar.width = 0.2 * newHealth/this._healthUI['2'].startingHealth;
-        this._healthUI['2'].healthText.text = newHealth + '';
+
+    changeHealth(id, newHealth) {
+        this._healthUI[id].healthBar.width = 0.2 * newHealth/this._healthUI[id].startingHealth;
+        this._healthUI[id].healthText.text = newHealth + '';
     }
 }

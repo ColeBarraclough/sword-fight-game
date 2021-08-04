@@ -2,19 +2,20 @@ import "@babylonjs/loaders/glTF";
 
 import React from "react";
 import {SceneLoader, StandardMaterial, HemisphericLight, Scene, Vector3, Mesh, Color3, Color4, ShadowGenerator, PointLight, FreeCamera, Matrix, MeshBuilder, Quaternion, GamepadManager} from "@babylonjs/core";
-import { AdvancedDynamicTexture, Button, Control} from "@babylonjs/gui";
+import { AdvancedDynamicTexture, Button, Control, InputText, ScrollViewer, StackPanel, TextBlock, RadioButton} from "@babylonjs/gui";
 import {Hud} from "./ui.js"
 import SceneComponent from "./SceneComponent"; // uses above component in same directory
 import {Environment} from "./Enviorment";
 import {LightPlayer, HeavyPlayer} from "./Player"
 import {PlayerInput} from "./PlayerInput"
-
-
+import io from "socket.io-client"
+import { Room } from "./Room.js";
 
 const states = {
   MAIN_MENU: 0,
   CUTSCENE: 1,
   GAME: 2,
+  ROOM: 3,
 }
 
 class BabylonScene {
@@ -24,6 +25,7 @@ class BabylonScene {
     this._canvas = scene.getEngine().getRenderingCanvas();
     this._gamepadManager = new GamepadManager();
     this._state = 0;
+    this._userName = "5up3rc001dud3";
   }
 
   onRender = () => {
@@ -43,6 +45,9 @@ class BabylonScene {
                 this._scene.render();
                 break;
             case states.GAME:
+                this._scene.render();
+                break;
+            case states.ROOM:
                 this._scene.render();
                 break;
             default: break;
@@ -67,23 +72,65 @@ class BabylonScene {
 
     
     //create a fullscreen ui for all of our GUI elements
-    const guiMenu = AdvancedDynamicTexture.CreateFullscreenUI("UI");
-    guiMenu.idealHeight = 720; //fit our fullscreen ui to this height
+    this._guiMenu = AdvancedDynamicTexture.CreateFullscreenUI("UI");
+    this._guiMenu.idealHeight = 720; //fit our fullscreen ui to this height
+
+    const usernameInput = new InputText();
+    usernameInput.width = 0.2;
+    usernameInput.maxWidth = 0.2;
+    usernameInput.height = "40px";
+    usernameInput.placeholderText = "Enter a Username";
+    usernameInput.placeholderColor = "grey";
+    usernameInput.color = "black";
+    usernameInput.background = "white";
+    this._guiMenu.addControl(usernameInput);
+    usernameInput.onBlurObservable.add(() => {
+      this._userName = usernameInput.text;
+    });
+
 
     //create a simple button
-    const startBtn = Button.CreateSimpleButton("start", "PLAY");
-    startBtn.width = 0.2;
-    startBtn.height = "40px";
-    startBtn.color = "white";
-    startBtn.top = "-14px";
-    startBtn.thickness = 0;
-    startBtn.verticalAlignment = Control.VERTICAL_ALIGNMENT_BOTTOM;
-    guiMenu.addControl(startBtn);
+    const createRoomBtn = Button.CreateSimpleButton("createRoom", "Create a Room");
+    createRoomBtn.width = 1;
+    createRoomBtn.height = "100px";
+    createRoomBtn.color = "white";
+    createRoomBtn.thickness = 0;
+    createRoomBtn.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
+    this._guiMenu.addControl(createRoomBtn);
+
+    const joinRoomBtn = Button.CreateSimpleButton("joinRoom", "Join a Room");
+    joinRoomBtn.width = 1;
+    joinRoomBtn.height = "100px";
+    joinRoomBtn.color = "white";
+    joinRoomBtn.thickness = 0;
+    joinRoomBtn.verticalAlignment = Control.VERTICAL_ALIGNMENT_BOTTOM;
+    this._guiMenu.addControl(joinRoomBtn);
 
     //this handles interactions with the start button attached to the scene
-    startBtn.onPointerDownObservable.add(() => {
-        this._goToCutScene();
-        scene.detachControl(); //observables disabled
+    createRoomBtn.onPointerDownObservable.add(() => {
+      if (this._socket == null) {
+        this._setupSocket();
+      } 
+      this._guiMenu.removeControl(createRoomBtn);
+      this._guiMenu.removeControl(joinRoomBtn);
+      this._guiMenu.removeControl(usernameInput);
+      this._roomId = makeid(10);
+      this._socket.emit("create", {id: this._roomId, name: `${this._userName}'s Room`, username: this._userName});
+      this._goToRoom(true, null);
+    });
+
+    joinRoomBtn.onPointerDownObservable.add(() => {
+      this._guiMenu.removeControl(createRoomBtn);
+      this._guiMenu.removeControl(joinRoomBtn);
+      this._guiMenu.removeControl(usernameInput);
+      this._stack = this._createRoomList();
+      if (this._socket == null) {
+        this._setupSocket();
+      }
+      this._socket.emit('room_request', "");
+      // this._createCharacter = HeavyPlayer;
+      // this._goToCutScene();
+      // scene.detachControl(); //observables disabled
     });
 
     //--SCENE FINISHED LOADING--
@@ -93,6 +140,121 @@ class BabylonScene {
     this._scene.dispose();
     this._scene = scene;
     this._state = states.MAIN_MENU;
+  }
+
+  _refreshRoomList() {
+    this._stack.clearControls();
+    let i = 0;
+    this._rooms.forEach(element => {
+      const roomBtn = new Button.CreateSimpleButton(element.roomId, element.roomName);
+      roomBtn.width = 1;
+      roomBtn.height = "100px";
+      roomBtn.color = "white";
+      roomBtn.thickness = 0;
+      roomBtn.fontSize = "50";
+      if (i % 2 == 0) {
+        roomBtn.background = "orange";
+      } else {
+        roomBtn.background = "blue";
+      }
+      this._stack.addControl(roomBtn);
+      roomBtn.onPointerDownObservable.add(() => {
+        this._socket.emit("join", {roomId: element.roomId, username: this._userName});
+      });
+      i++;
+    });
+  }
+
+  _createRoomList() {
+    const roomsText = new TextBlock();
+    roomsText.height = "100px";
+    roomsText.width = 1;
+    roomsText.text = "Choose a Room";
+    roomsText.color = "white";
+    roomsText.fontSize = 24;
+    roomsText.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
+    this._guiMenu.addControl(roomsText);
+    
+    const refreshBtn = Button.CreateImageOnlyButton("refresh", "images/refresh.png");
+    refreshBtn.height = "70px";
+    refreshBtn.width = "70px";
+    refreshBtn.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
+    refreshBtn.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_RIGHT;
+    refreshBtn.paddingRight = "5px";
+    refreshBtn.paddingTop = "5px";
+    this._guiMenu.addControl(refreshBtn);
+    refreshBtn.onPointerDownObservable.add(() => {
+      this._socket.emit('room_request', "");
+    });
+
+    const myScrollViewer = new ScrollViewer();
+    myScrollViewer.height = "90%";
+    myScrollViewer.width = "100%";
+    myScrollViewer.verticalAlignment = Control.VERTICAL_ALIGNMENT_BOTTOM;
+
+    const stack = new StackPanel();
+    stack.width = "1000px";
+    stack.height = "1000px";
+    myScrollViewer.addControl(stack);
+    this._guiMenu.addControl(myScrollViewer);
+    return stack;
+  }
+
+  _setupSocket() {
+    this._socket = io("ws://localhost:5000");
+    this._socket.on("connect", () => {
+      // either with send()
+      this._socket.on("room_request", (a) => {
+        this._rooms = a;
+        console.log(this._rooms);
+        this._refreshRoomList(this._stack);
+      });
+
+      this._socket.on("room", (roomData) => {
+        this._goToRoom(false, roomData);
+      });
+
+      this._socket.on("hello", (info) => {
+        console.log(info.userId);
+      })
+
+    });
+    this._socket.emit("user_info", {username: this._userName});
+    window.onbeforeunload = this._removeSocket();
+  }
+
+  _removeSocket() {
+    this._socket.emit("user_leave");
+  }
+
+  async _goToRoom(createdRoom, roomData) {
+    this._engine.displayLoadingUI();
+    this._scene.detachControl();
+    let scene = new Scene(this._engine);
+    scene.clearColor = new Color4(0, 0, 0, 1);
+    let camera = new FreeCamera("camera1", new Vector3(0, 0, 0), scene);
+    camera.setTarget(Vector3.Zero());
+
+    const room = new Room(scene, this._userName, roomData, this._socket, createdRoom);
+
+    room.onStart.add((createdPlayer) => {
+      this._createCharacter = createdPlayer;
+      this._goToCutScene();
+    })
+
+    room.onBack.add(() => {
+      this._socket.emit("user_leave");
+      this._goToMainMenu();
+    })
+    
+
+
+    await scene.whenReadyAsync();
+    this._engine.hideLoadingUI();
+    //lastly set the current state to the start state and set the scene to the start scene
+    this._scene.dispose();
+    this._scene = scene;
+    this._state = states.ROOM;
   }
 
   async _goToCutScene() {
@@ -273,8 +435,9 @@ class BabylonScene {
     });
 
     //Create the player
-    this._playerTwo = new LightPlayer(this.playerTwoAssets, scene, shadowGenerator, null, this._ui);
-    this._playerOne = new HeavyPlayer(this.playerOneAssets, scene, shadowGenerator, this._input, this._ui); //dont have inputs yet so we dont need to pass it in
+    this._playerTwo = new LightPlayer('2', this.playerTwoAssets, scene, shadowGenerator, null, this._ui);
+    this._playerOne = new this._createCharacter('1', this.playerOneAssets, scene, shadowGenerator, this._input, this._ui); 
+    console.log(this._playerOne);
     const camera = this._playerOne.activatePlayerCamera();
     this._ui.initializeHealthBar('1', this._playerOne.getPlayerHealth());
     this._ui.initializeHealthBar('2', this._playerTwo.getPlayerHealth());
@@ -283,48 +446,16 @@ class BabylonScene {
   }
 }
 
-
-// let box;
-// let box2;
-
-// const onSceneReady = (scene) => {
-//   createLevel(scene);
-// };
-
-// /**
-//  * Will run on every frame render.  We are spinning the box on y-axis.
-//  */
-// const onRender = (scene) => {
-//   let camera = scene.getCameraByID("UniCam"); 
-//   var gamepadManager = new GamepadManager();
-//   var deadzone = 0.1;
-//   box.rotation = new Vector3(0,-Math.atan2(box.position.z - box2.position.z,box.position.x - box2.position.x),0);
-//   let theta = box.rotation.y;  
-//   gamepadManager.onGamepadConnectedObservable.add((gamepad, state)=>{
-//     scene.registerBeforeRender(function () {
-//       if(gamepad instanceof Xbox360Pad){
-//           if (gamepad.buttonA) {
-//             //Button has been pressed
-//             console.log(theta * 180/Math.PI)
-//         }
-//           //Check if the x and y are in the deadzone
-//           if (Math.sqrt(gamepad.leftStick.y* gamepad.leftStick.y + gamepad.leftStick.x * gamepad.leftStick.x) > deadzone) {
-//             // box.position.z += Math.sin(-theta)*(gamepad.leftStick.y*0.0005)
-//             // box.position.x += Math.cos(-theta)*(gamepad.leftStick.y*0.0005)
-//             // box.position.z += Math.sin(theta)*(gamepad.leftStick.x*0.0005)
-//             // box.position.x += Math.cos(-theta)*(gamepad.leftStick.x*0.0005)
-//             box.moveWithCollisions(box.forward * (gamepad.leftStick.y*0.0000005));
-//             // box.moveWithCollisions(box.left * (gamepad.leftStick.x*0.000005));
-//           }
-//       }
-//     });
-//   });
-//   gamepadManager.onGamepadDisconnectedObservable.add((gamepad, state)=>{
-//   });
-
-//   followRotateCameraUpdate(box.position, box2.position, theta, camera, scene.getEngine().getDeltaTime());
-  
-// };
+function makeid(length) {
+  var result           = '';
+  var characters       = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
+  var charactersLength = characters.length;
+  for ( var i = 0; i < length; i++ ) {
+    result += characters.charAt(Math.floor(Math.random() * 
+charactersLength));
+ }
+ return result;
+}
 
 
 

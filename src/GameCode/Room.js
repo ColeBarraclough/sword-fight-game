@@ -1,16 +1,31 @@
 import {Button, Control, InputText, StackPanel, TextBlock, RadioButton, AdvancedDynamicTexture} from "@babylonjs/gui";
 import { Observable } from "@babylonjs/core";
 import {LightPlayer, HeavyPlayer} from "./Player"
+import {PeerConnection} from "./Peer-Connection"
 
 class Room {
-    constructor(scene, username,roomData, socket, createdRoom) {
+    constructor(scene, user, roomData, socket, createdRoom) {
         this._scene = scene
-        this._username = username;
+        this._user = user;
+        if (roomData != null) {
+            this._peerUser = {userId: roomData.userId, username: roomData.username};
+        }
+        this._username = user.username;
         this._guiMenu = AdvancedDynamicTexture.CreateFullscreenUI("UI", true, scene);
         this._guiMenu.idealHeight = 720; //fit our fullscreen ui to this height
         
         this._roomData = roomData;
         this._socket = socket;
+        this._socket.on('sdp', (sdpInfo) => {
+            this._onSdp(sdpInfo)
+        });
+        this._socket.on('ice_candidate', (candidate) => {
+            this._onIceCandidate(candidate)
+        });
+
+        // this._socket.on('sdp', this._onSdp);
+        // this._socket.on('ice_candidate', this._onIceCandidate);
+
         this.onStart = new Observable();
         this.onBack = new Observable();
         if (createdRoom) {
@@ -46,7 +61,7 @@ class Room {
         startBtn.verticalAlignment = Control.VERTICAL_ALIGNMENT_BOTTOM;
         startBtn.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_RIGHT;
         startBtn.onPointerDownObservable.add(() => {
-            this.onStart.notifyObservers(this._createCharacter);
+            this._startGame();
         });
         this._guiMenu.addControl(startBtn);
 
@@ -73,7 +88,8 @@ class Room {
         readyBtn.verticalAlignment = Control.VERTICAL_ALIGNMENT_BOTTOM;
         readyBtn.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_RIGHT;
         readyBtn.onPointerDownObservable.add(() => {
-          this._socket.emit("user_ready", "");
+            this._createPeerConnection(false);
+            this._socket.emit("user_ready", "");
         });
         this._guiMenu.addControl(readyBtn);
 
@@ -103,9 +119,11 @@ class Room {
         }
         playersStack.addControl(playerTwoText);
         this._socket.on('user_join', (userInfo) => {
-          playerTwoText.text = userInfo.username;
+            this._peerUser = userInfo;
+            playerTwoText.text = userInfo.username;
         })
-        this._socket.on("user_leave", (userInfo) => {
+        this._socket.on("user_leave", () => {
+            this._peerUser = null;
             playerTwoText.text = "";
         })
     
@@ -136,7 +154,7 @@ class Room {
         header.height = "30px";
         heavyplayerBtn.onIsCheckedChangedObservable.add(() => 
         {
-          this._createCharacter = HeavyPlayer;  
+            this._createCharacter = HeavyPlayer;  
         });
         characterStack.addControl(heavyplayerBtn); 
 
@@ -152,6 +170,35 @@ class Room {
         });
         this._guiMenu.addControl(backBtn);
     }
+
+    _startGame() {
+        this._createPeerConnection(true);
+    }
+
+    _createPeerConnection(initiator) {
+        this._peer = new PeerConnection(this._socket, this._user, this._peerUser, initiator);
+        this._peer.onDataChannelReady.add((e) => {
+            this.onStart.notifyObservers({peerConnection: this._peer, createCharacter: this._createCharacter});
+        });
+    }
+
+    _onSdp(sdpInfo) {
+        this._pendingSdp = sdpInfo.sdp;
+        this._peer.setSdp(sdpInfo.sdp);
+    }
+
+    _onIceCandidate(message) {
+        var userId = message.userId;
+        if (!this._peer) {
+          this.log('Adding pending candidate from another player. id =' + userId, 'gray');
+          if (!this.pendingCandidates[userId]) {
+            this.pendingCandidates[userId] = [];
+          }
+          this.pendingCandidates[userId].push(message.candidate);
+          return;
+        }
+        this._peer.addIceCandidate(message.candidate);
+      }
 
 }
 

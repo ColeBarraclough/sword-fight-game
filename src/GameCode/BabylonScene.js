@@ -26,6 +26,7 @@ class BabylonScene {
     this._gamepadManager = new GamepadManager();
     this._state = 0;
     this._userName = "5up3rc001dud3";
+    this._userId = makeid(10);
   }
 
   onRender = () => {
@@ -219,7 +220,7 @@ class BabylonScene {
       })
 
     });
-    this._socket.emit("user_info", {username: this._userName});
+    this._socket.emit("user_info", {username: this._userName, userId: this._userId});
     window.onbeforeunload = this._removeSocket();
   }
 
@@ -235,10 +236,12 @@ class BabylonScene {
     let camera = new FreeCamera("camera1", new Vector3(0, 0, 0), scene);
     camera.setTarget(Vector3.Zero());
 
-    const room = new Room(scene, this._userName, roomData, this._socket, createdRoom);
+    const room = new Room(scene, {userId: this._userId, username: this._userName}, roomData, this._socket, createdRoom);
 
-    room.onStart.add((createdPlayer) => {
-      this._createCharacter = createdPlayer;
+    room.onStart.add((startData) => {
+      this._createCharacter = startData.createCharacter;
+      this._peerConnection = startData.peerConnection;
+      this._peerConnection.sendMessage("hello");
       this._goToCutScene();
     })
 
